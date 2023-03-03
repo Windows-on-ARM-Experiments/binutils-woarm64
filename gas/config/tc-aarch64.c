@@ -9551,6 +9551,10 @@ md_apply_fix (fixS * fixP, valueT * valP, segT seg)
     case BFD_RELOC_16_SECIDX:
       break;
 
+    case BFD_RELOC_18_SHIFTR2:
+      put_aarch64_insn (buf, value >> 2);
+      break;
+
     default:
       as_bad_where (fixP->fx_file, fixP->fx_line,
 		    _("unexpected %s fixup"),
@@ -9644,6 +9648,11 @@ cons_fix_new_aarch64 (fragS * frag, int where, int size, expressionS * exp)
     {
       exp->X_op = O_symbol;
       type = BFD_RELOC_16_SECIDX;
+    }
+  else if (exp->X_op == O_xdata_18bit)
+    {
+      exp->X_op = O_subtract;
+      type = BFD_RELOC_18_SHIFTR2;
     }
   else
     {

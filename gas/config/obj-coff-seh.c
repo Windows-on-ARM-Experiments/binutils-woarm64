@@ -69,6 +69,12 @@ get_pxdata_name (segT seg, const char *base_name)
   return sname;
 }
 
+static inline bool
+write_pdata_xdata_records(void)
+{
+  return (seh_ctx_cur->arm64_ctx.unwind_codes_byte_count > 0) ? true : false;
+}
+
 /* Allocate a seh_seg_list structure.  */
 static struct seh_seg_list *
 alloc_pxdata_item (segT seg, int subseg, char *name)
@@ -395,8 +401,11 @@ do_seh_endproc (void)
 {
   seh_ctx_cur->end_addr = symbol_temp_new_now ();
 
-  write_function_xdata (seh_ctx_cur);
-  write_function_pdata (seh_ctx_cur);
+  if (seh_get_target_kind () == seh_kind_arm64 && write_pdata_xdata_records ())
+  {
+    write_function_xdata (seh_ctx_cur);
+    write_function_pdata (seh_ctx_cur);
+  }
   seh_ctx_cur = NULL;
 }
 
