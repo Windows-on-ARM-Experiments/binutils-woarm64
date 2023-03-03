@@ -4560,6 +4560,11 @@ _bfd_XXi_final_link_postscript (bfd * abfd, struct coff_final_link_info *pfinfo)
 #if !defined(COFF_WITH_pep) && (defined(COFF_WITH_pex64) || defined(COFF_WITH_peAArch64) || defined(COFF_WITH_peLoongArch64))
   {
     asection *sec = bfd_get_section_by_name (abfd, ".pdata");
+#if defined(COFF_WITH_peAArch64)
+  #define pdata_stride 8
+#else
+  #define pdata_stride 12
+#endif
 
     if (sec)
       {
@@ -4569,8 +4574,8 @@ _bfd_XXi_final_link_postscript (bfd * abfd, struct coff_final_link_info *pfinfo)
 	if (bfd_malloc_and_get_section (abfd, sec, &tmp_data))
 	  {
 	    qsort (tmp_data,
-		   (size_t) (x / 12),
-		   12, sort_x64_pdata);
+		   (size_t) (x / pdata_stride),
+		   pdata_stride, sort_x64_pdata);
 	    bfd_set_section_contents (pfinfo->output_bfd, sec,
 				      tmp_data, 0, x);
 	    free (tmp_data);

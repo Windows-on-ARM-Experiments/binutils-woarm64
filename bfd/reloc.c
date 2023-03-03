@@ -1208,6 +1208,14 @@ _bfd_relocate_contents (reloc_howto_type *howto,
   if (howto->negate)
     relocation = -relocation;
 
+  if (howto->bitsize == 21 ||
+      howto->bitsize == 12 ||
+      howto->bitsize == 26)
+    {
+      _bfd_error_handler (_("%pB: %d bit relocation not currently supported.\n"),
+            input_bfd, howto->bitsize);
+    }
+
   /* Get the value we are going to relocate.  */
   x = read_reloc (input_bfd, location, howto);
 
@@ -1427,6 +1435,13 @@ ENUMX
   BFD_RELOC_16_SECIDX
 ENUMDOC
   Section relative relocations.  Some targets need this for DWARF2.
+
+ENUM
+  BFD_RELOC_18_SHIFTR2
+ENUMX
+  BFD_RELOC_16_SECIDX
+ENUMDOC
+  18bit shifted two to the right. Used for aarch64 PE COFF XDATA sections.
 
 ENUM
   BFD_RELOC_32_GOT_PCREL
