@@ -770,6 +770,35 @@ coff_pe_aarch64_relocate_section (bfd *output_bfd,
 	    break;
 	  }
 
+	case IMAGE_REL_ARM64_REL32:
+	  {
+	    uint64_t cur_vma;
+	    int64_t addend, val;
+
+	    addend = bfd_getl32 (contents + rel->r_vaddr);
+
+	    if (addend & 0x80000000)
+	      addend |= 0xffffffff00000000;
+
+	    dest_vma += addend;
+	    cur_vma = input_section->output_section->vma
+		      + input_section->output_offset
+		      + rel->r_vaddr;
+
+	    val = dest_vma - cur_vma;
+
+	    if (val > 0xffffffff || val < -0x100000000)
+	      (*info->callbacks->reloc_overflow)
+		(info, h ? &h->root : NULL, syms[symndx]._n._n_name,
+		"IMAGE_REL_ARM64_REL32", addend, input_bfd,
+		input_section, rel->r_vaddr - input_section->vma);
+
+	    bfd_putl32 (val, contents + rel->r_vaddr);
+	    rel->r_type = IMAGE_REL_ARM64_ABSOLUTE;
+
+	    break;
+	  }
+
 	case IMAGE_REL_ARM64_PAGEOFFSET_12L:
 	  {
 	    uint32_t opcode, val;
