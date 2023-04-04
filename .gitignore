@@ -59,6 +59,7 @@ core
 !core/
 
 lost+found
+.vscode
 
 # ignore ./contrib/gcc_update output
 LAST_UPDATED
