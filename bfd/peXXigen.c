@@ -4556,7 +4556,6 @@ _bfd_XXi_final_link_postscript (bfd * abfd, struct coff_final_link_info *pfinfo)
 /* If there is a .pdata section and we have linked pdata finally, we
      need to sort the entries ascending.  */
 #if !defined(COFF_WITH_pep) && (defined(COFF_WITH_pex64) || defined(COFF_WITH_peAArch64) || defined(COFF_WITH_peLoongArch64))
-#if !defined(COFF_WITH_pep) && (defined(COFF_WITH_pex64) || defined(COFF_WITH_peAArch64) || defined(COFF_WITH_peLoongArch64))
   {
     asection *sec = bfd_get_section_by_name (abfd, ".pdata");
 #if defined(COFF_WITH_peAArch64)
