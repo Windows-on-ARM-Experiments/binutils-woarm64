@@ -156,7 +156,9 @@ typedef enum seh_arm64_unwind_types
   set_fp,
   save_next,
   nop,
-  pac_sign_lr
+  pac_sign_lr,
+  end,
+  end_c
 } seh_arm64_unwind_types;
 
 typedef struct seh_arm64_alloc_s
@@ -278,6 +280,11 @@ typedef struct seh_arm64_save_next
   unsigned char code;
 } seh_arm64_save_next;
 
+typedef struct seh_arm64_end
+{
+  unsigned char code;
+} seh_arm64_end;
+
 typedef struct seh_arm64_unwind_code
 {
   union {
@@ -300,6 +307,7 @@ typedef struct seh_arm64_unwind_code
     seh_arm64_pac_sign_lr   pac_sign_lr;
     seh_arm64_set_fp        set_fp;
     seh_arm64_save_next     save_next;
+    seh_arm64_end           end;
   };
   seh_arm64_unwind_types type;
 } seh_arm64_unwind_code;
@@ -353,22 +361,20 @@ typedef struct seh_arm64_epilogue_scope
   unsigned int epilogue_start_index : 10;
 } seh_arm64_epilogue_scope;
 
+#define MAX_UNWIND_CODES 286
+#define MAX_EPILOGUE_SCOPES 32
+
 typedef struct seh_arm64_context
 { 
   seh_arm64_pdata pdata;
   seh_arm64_xdata_header xdata_header;
   unsigned int unwind_codes_count;
   unsigned int unwind_codes_byte_count;
-  unsigned int epilogue_byte_index;
-  unsigned int last_prologue_index;
-  bool func_has_prologue;
-  seh_arm64_unwind_code unwind_codes[286];
+  seh_arm64_unwind_code unwind_codes[MAX_UNWIND_CODES];
   unsigned int epilogue_scopes_count;
-  seh_arm64_epilogue_scope epilogue_scopes[32];
+  seh_arm64_epilogue_scope epilogue_scopes[MAX_EPILOGUE_SCOPES];
   expressionS except_handler;
   expressionS except_handler_data;
-  bool in_epilogue_scope;
-  bool epilogue_byte_index_set;
 } seh_arm64_context;
 
 typedef struct seh_context
