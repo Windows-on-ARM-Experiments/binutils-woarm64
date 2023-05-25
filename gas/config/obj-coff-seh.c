@@ -429,6 +429,21 @@ obj_coff_seh_handlerdata (int what ATTRIBUTE_UNUSED)
   switch_xdata (seh_ctx_cur->subsection + 1, seh_ctx_cur->code_seg);
 }
 
+/* Obtain available unwind element   */
+
+static inline seh_arm64_unwind_code*
+seh_arm64_get_unwind_element (void)
+{
+  if (seh_ctx_cur == NULL)
+    return NULL;
+  
+  if (seh_ctx_cur->arm64_ctx.unwind_codes_count >= MAX_UNWIND_CODES)
+    return NULL;
+
+  return &seh_ctx_cur->arm64_ctx.unwind_codes[seh_ctx_cur->arm64_ctx.unwind_codes_count++];
+}
+
+
 /* Mark end of current context.  */
 
 static void
@@ -493,8 +508,7 @@ obj_coff_seh_proc (int what ATTRIBUTE_UNUSED)
       {
         seh_ctx_cur->arm64_ctx.unwind_codes_count = 0;
         seh_ctx_cur->arm64_ctx.epilogue_scopes_count = 0;
-      }
-      
+      }      
     }
 
   SKIP_WHITESPACE ();
@@ -525,9 +539,29 @@ obj_coff_seh_endprologue (int what ATTRIBUTE_UNUSED)
 
   if (seh_get_target_kind () == seh_kind_arm64)
   {
-    seh_ctx_cur->arm64_ctx.last_prologue_index = seh_ctx_cur->arm64_ctx.unwind_codes_count - 1;
-    seh_ctx_cur->arm64_ctx.func_has_prologue = true;
-  }
+    int n = seh_ctx_cur->arm64_ctx.unwind_codes_count;
+    
+    /* unwind codes need to be reversed */
+    for(int i = 0; i < n / 2; ++i)
+    {
+      seh_arm64_unwind_code temp = seh_ctx_cur->arm64_ctx.unwind_codes[i];
+      seh_ctx_cur->arm64_ctx.unwind_codes[i] = seh_ctx_cur->arm64_ctx.unwind_codes[n-i-1];
+      seh_ctx_cur->arm64_ctx.unwind_codes[n-i-1] = temp;
+    }
+
+    /* End code */
+    seh_arm64_unwind_code *end_element = seh_arm64_get_unwind_element ();
+
+    if (end_element == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+    end_element->end.code = ARM64_UNW_END;
+    end_element->type = end;
+    seh_ctx_cur->arm64_ctx.unwind_codes_byte_count++;
+  } 
 }
 
 static void
@@ -556,9 +590,8 @@ obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
       seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].reserved = 0;
       /* optimization to reuse unwind codes from the prologue   */
       seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_index
-        = seh_ctx_cur->arm64_ctx.unwind_codes_count;
+        = seh_ctx_cur->arm64_ctx.unwind_codes_byte_count;
       seh_ctx_cur->arm64_ctx.epilogue_scopes_count++;
-      seh_ctx_cur->arm64_ctx.in_epilogue_scope = true;
     }
     else
       as_bad (_(".seh_startepilogue in a different section from .seh_proc"));
@@ -571,7 +604,20 @@ obj_coff_seh_endepilogue(int what ATTRIBUTE_UNUSED)
   if (!verify_context (".seh_endepilogue")
       || !seh_validate_seg (".seh_endepilogue"))
     return;
-  seh_ctx_cur->arm64_ctx.in_epilogue_scope = false;
+
+  /* End code */
+  seh_arm64_unwind_code *end_element = seh_arm64_get_unwind_element ();
+
+  if (end_element == NULL)
+  {
+    as_warn (_("no unwind element available."));
+    return;
+  }
+
+  end_element->end.code = ARM64_UNW_END;
+  end_element->type = end;
+  seh_ctx_cur->arm64_ctx.unwind_codes_byte_count++;
+
   demand_empty_rest_of_line ();
 }
 
@@ -618,16 +664,6 @@ seh_x64_make_prologue_element (int code, int info, offsetT off)
 }
 
 
-/* Obtain available unwind element   */
-
-static inline seh_arm64_unwind_code*
-seh_arm64_get_unwind_element (void)
-{
-  if (seh_ctx_cur == NULL)
-    return NULL;
-  else
-    return &seh_ctx_cur->arm64_ctx.unwind_codes[seh_ctx_cur->arm64_ctx.unwind_codes_count++];
-}
 
 
 /* Helper to read a register name from input stream (x64).  */
@@ -780,18 +816,6 @@ obj_coff_seh_save (int what)
   seh_x64_make_prologue_element (code, reg, off);
 }
 
-static inline void
-arm64_check_set_epilogue_byte_index(void)
-{
-  if (seh_ctx_cur->arm64_ctx.in_epilogue_scope && !seh_ctx_cur->arm64_ctx.epilogue_byte_index_set)
-  {
-    /*  Remeber to account for the extra 'end' unwind code after the prologue   */
-    seh_ctx_cur->arm64_ctx.epilogue_byte_index = seh_ctx_cur->arm64_ctx.unwind_codes_byte_count + 1;
-    seh_ctx_cur->arm64_ctx.epilogue_byte_index_set = true;
-
-  }
-}
-
 /* ARM64 save_reg handlers   */
 static void
 obj_coff_seh_save_reg (int what)
@@ -877,7 +901,7 @@ obj_coff_seh_save_reg (int what)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
 
@@ -969,8 +993,6 @@ obj_coff_seh_save_reg (int what)
       break;
   }
 
-  arm64_check_set_epilogue_byte_index ();
-
   /*  all save_reg variations consume 2 bytes   */
   seh_ctx_cur->arm64_ctx.unwind_codes_byte_count += 2;
 }
@@ -1011,7 +1033,7 @@ obj_coff_seh_save_fplr (int what)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
 
@@ -1037,7 +1059,6 @@ obj_coff_seh_save_fplr (int what)
       break;
   }
 
-  arm64_check_set_epilogue_byte_index ();
   seh_ctx_cur->arm64_ctx.unwind_codes_byte_count++;
 }
 
@@ -1064,11 +1085,9 @@ obj_coff_seh_add_fp (int what ATTRIBUTE_UNUSED)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
-
-  arm64_check_set_epilogue_byte_index ();
 
   arm64_element->add_fp.code = ARM64_UNW_ADDFP;
   arm64_element->add_fp.offset = off / 8;
@@ -1092,11 +1111,9 @@ obj_coff_seh_nop (int what ATTRIBUTE_UNUSED)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
-
-  arm64_check_set_epilogue_byte_index ();
 
   arm64_element->nop.code = ARM64_UNW_NOP;
   arm64_element->type = nop;
@@ -1119,11 +1136,9 @@ obj_coff_seh_pac_sign_lr (int what ATTRIBUTE_UNUSED)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
-
-  arm64_check_set_epilogue_byte_index ();
 
   arm64_element->pac_sign_lr.code = ARM64_UNW_PACSIGNLR;
   arm64_element->type = pac_sign_lr;
@@ -1146,11 +1161,9 @@ obj_coff_seh_set_fp (int what ATTRIBUTE_UNUSED)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
-
-  arm64_check_set_epilogue_byte_index ();
 
   arm64_element->set_fp.code = ARM64_UNW_SETFP;
   arm64_element->type = set_fp;
@@ -1173,11 +1186,9 @@ obj_coff_seh_save_next (int what ATTRIBUTE_UNUSED)
 
   if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
   {
-    as_bad (_("no unwind element available."));
+    as_warn (_("no unwind element available."));
     return;
   }
-
-  arm64_check_set_epilogue_byte_index ();
 
   arm64_element->save_next.code = ARM64_UNW_SAVENEXT;
   arm64_element->type = save_next;
@@ -1230,11 +1241,9 @@ obj_coff_seh_stackalloc (int what ATTRIBUTE_UNUSED)
     case seh_kind_arm64:
       if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
       {
-        as_bad (_("no unwind element available."));
+        as_warn (_("no unwind element available."));
         return;
       }
-
-      arm64_check_set_epilogue_byte_index ();
 
       /* arm64 offset should be encoded in multiples of sixteen   */
       if ((off & 0xf) != 0)
@@ -1274,7 +1283,6 @@ obj_coff_seh_stackalloc (int what ATTRIBUTE_UNUSED)
       return;
   }
 }
-
 
 /* Add a frame-pointer token to current context.  */
 
@@ -1337,7 +1345,7 @@ out_four (int data)
 }
 
 static inline void
-out_ptr (void *data, int size)
+out_ptr (const void *data, int size)
 {
   valueT *value = (valueT*)data;
   md_number_to_chars (frag_more (size), *value, size);
@@ -1399,12 +1407,10 @@ seh_x64_write_prologue_data (const seh_context *c)
 }
 
 static unsigned int
-seh_arm64_emit_unwind_codes_worker (const seh_context *c, int index)
+seh_arm64_unwind_codes_len (const seh_context *c, int index)
 {
-  unsigned int total_byte_count = 0;
-
   const seh_arm64_unwind_code *code = &c->arm64_ctx.unwind_codes[index];
-  int byte_count = 0;
+  unsigned int byte_count = 0;
 
   switch (code->type)
   {
@@ -1432,6 +1438,8 @@ seh_arm64_emit_unwind_codes_worker (const seh_context *c, int index)
     case set_fp:
     case save_next:
     case save_r19r20_x:
+    case end:
+    case end_c:
       byte_count = 1;
       break;
     default:
@@ -1439,52 +1447,31 @@ seh_arm64_emit_unwind_codes_worker (const seh_context *c, int index)
       break;
   }
 
-  unsigned char *byte_array = (unsigned char*)code;
-
-  /*  emit unwind code bytes in big endian   */
-  for (int j = byte_count-1; j >= 0; --j)
-    out_one (byte_array[j]);
-
-  total_byte_count += byte_count;
-
-  return total_byte_count;
+  return byte_count;
 }
-
 
 static void
 seh_arm64_emit_unwind_codes (const seh_context *c)
-{
+{  
   unsigned int total_byte_count = 0;
   int i;
 
-  if (c->arm64_ctx.func_has_prologue)
+  for (i = 0; i < (int)c->arm64_ctx.epilogue_scopes_count; i++)
   {
-    /* We have to store in reverse order.  Start with prologue, then do epilogue.   */
-    for (i = c->arm64_ctx.last_prologue_index; i >= 0; i--)
-    {
-      total_byte_count += seh_arm64_emit_unwind_codes_worker (c, i);
-    }
-
-    /* emit 'end' unwind code for prologue   */
-    out_one (ARM64_UNW_END);
-    total_byte_count++;
+    out_ptr (seh_ctx_cur->arm64_ctx.epilogue_scopes + i, 4);
   }
-  else if (c->arm64_ctx.epilogue_scopes_count > 0)
+  
+  for (i = 0; i < (int)c->arm64_ctx.unwind_codes_count; i++)
   {
-    /* phantom prologue requires 'end_c' unwind code   */
-    out_one (ARM64_UNW_ENDC);
-  }
+    const seh_arm64_unwind_code *code = c->arm64_ctx.unwind_codes + i;
+    int byte_count = seh_arm64_unwind_codes_len (c, i);
+    unsigned char *byte_array = (unsigned char*)code;
 
-  if (c->arm64_ctx.epilogue_scopes_count == 1)
-  {
-    for (i = c->arm64_ctx.last_prologue_index + 1; i < (int)c->arm64_ctx.unwind_codes_count; i++)
-    {
-      total_byte_count += seh_arm64_emit_unwind_codes_worker (c, i);
-    }
+    /*  emit unwind code bytes in big endian   */
+    for (int j = byte_count-1; j >= 0; --j)
+      out_one (byte_array[j]);
 
-    /* emit 'end' unwind code for epilogue  */
-    out_one (ARM64_UNW_END);
-    total_byte_count++;
+    total_byte_count += byte_count;
   }
 
   /* handle word alignment   */
@@ -1622,23 +1609,13 @@ seh_arm64_write_function_xdata (seh_context *c)
 
   c->arm64_ctx.xdata_header.vers = 0;
 
-  if (c->arm64_ctx.epilogue_scopes_count == 1)
-  {
-    c->arm64_ctx.xdata_header.e = 1;
-    c->arm64_ctx.xdata_header.epilogue_count = c->arm64_ctx.epilogue_byte_index;
-  }
-  else if (c->arm64_ctx.epilogue_scopes_count > 1)
-  {
     /* TODO: Implement logic for > 31 scopes   */
-    c->arm64_ctx.xdata_header.e = 0;
-    c->arm64_ctx.xdata_header.epilogue_count = c->arm64_ctx.epilogue_scopes_count;
-  }
+  c->arm64_ctx.xdata_header.e = 0;
+  c->arm64_ctx.xdata_header.epilogue_count = c->arm64_ctx.epilogue_scopes_count;
 
   /* TODO:  Implement > 31 unwind codes   */
 
-  /*  add byte for end or end_c unwind code IF we have any unwind codes   */
-  if (c->arm64_ctx.unwind_codes_byte_count > 0)
-    total_bytes = c->arm64_ctx.unwind_codes_byte_count + 1;
+  total_bytes = c->arm64_ctx.unwind_codes_byte_count;
 
   if (total_bytes % 4 == 0)
   {
