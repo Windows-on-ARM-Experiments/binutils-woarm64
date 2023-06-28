@@ -3278,7 +3278,10 @@ enum bfd_reloc_code_real
 
   /* Section relative relocations.  Some targets need this for DWARF2.  */
   BFD_RELOC_32_SECREL,
-  BFD_RELOC_16_SECIDX,
+  BFD_RELOC_16_SECIDX,  
+
+/* 16bit shifted two to the right. Used for aarch64 PE COFF XDATA sections */
+  BFD_RELOC_16_SHIFTR2,
 
   /* For ELF.  */
   BFD_RELOC_32_GOT_PCREL,
