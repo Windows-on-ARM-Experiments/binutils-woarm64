@@ -356,9 +356,13 @@ typedef struct seh_arm64_xdata_header
 
 typedef struct seh_arm64_epilogue_scope
 {
-  unsigned int epilogue_start_offset : 18;
+  // actually 18 bits but first 16 bits
+  // are written independently using emit_expr
+  unsigned int epilogue_start_offset : 2;
   unsigned int reserved : 4;
   unsigned int epilogue_start_index : 10;
+
+  symbolS *epilogue_start_addr;
 } seh_arm64_epilogue_scope;
 
 #define MAX_UNWIND_CODES 286
