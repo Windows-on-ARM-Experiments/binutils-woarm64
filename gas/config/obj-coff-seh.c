@@ -518,6 +518,7 @@ obj_coff_seh_proc (int what ATTRIBUTE_UNUSED)
     }
 
   seh_ctx_cur = XCNEW (seh_context);
+  memset (seh_ctx_cur, 0, sizeof (seh_context));
 
   seh_ctx_cur->code_seg = now_seg;
 
@@ -591,9 +592,6 @@ obj_coff_seh_endprologue (int what ATTRIBUTE_UNUSED)
 static void
 obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
 {
-  symbolS *epilogue_start_addr;
-  expressionS exp;
-
   if (!verify_context (".seh_startepilogue")
       || !seh_validate_seg (".seh_startepilogue"))
     return;
@@ -601,24 +599,15 @@ obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
 
   if (seh_get_target_kind () == seh_kind_arm64)
   {
-    epilogue_start_addr = symbol_temp_new_now ();
-    exp.X_op = O_subtract;
-    exp.X_add_symbol = epilogue_start_addr;
-    exp.X_op_symbol = seh_ctx_cur->start_addr;
-    exp.X_add_number = 0;
-
-    if (resolve_expression (&exp) && exp.X_op == O_constant)
-    {
-      seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_offset
-        = exp.X_add_number / 4;
-      seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].reserved = 0;
-      /* optimization to reuse unwind codes from the prologue   */
-      seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_index
-        = seh_ctx_cur->arm64_ctx.unwind_codes_byte_count;
-      seh_ctx_cur->arm64_ctx.epilogue_scopes_count++;
-    }
-    else
-      as_bad (_(".seh_startepilogue in a different section from .seh_proc"));
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_offset
+      = 0;
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].reserved = 0;
+    /* optimization to reuse unwind codes from the prologue   */
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_index
+      = seh_ctx_cur->arm64_ctx.unwind_codes_byte_count;
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_addr
+      = symbol_temp_new_now ();
+    seh_ctx_cur->arm64_ctx.epilogue_scopes_count++;
   }
 }
 
@@ -1479,10 +1468,17 @@ seh_arm64_emit_unwind_codes (const seh_context *c)
 {  
   unsigned int total_byte_count = 0;
   int i;
+  expressionS exp;
+  memset (&exp, 0, sizeof (expressionS));
 
   for (i = 0; i < (int)c->arm64_ctx.epilogue_scopes_count; i++)
   {
-    out_ptr (seh_ctx_cur->arm64_ctx.epilogue_scopes + i, 4);
+    exp.X_op = O_xdata_epilog;
+    exp.X_add_symbol = seh_ctx_cur->arm64_ctx.epilogue_scopes[i].epilogue_start_addr;
+    exp.X_op_symbol = c->start_addr;
+    exp.X_add_number = 0;
+    emit_expr (&exp, 2);
+    out_ptr (seh_ctx_cur->arm64_ctx.epilogue_scopes + i, 2);
   }
   
   for (i = 0; i < (int)c->arm64_ctx.unwind_codes_count; i++)
@@ -1559,6 +1555,7 @@ seh_x64_write_function_xdata (seh_context *c)
 {
   int flags, count_unwind_codes;
   expressionS exp;
+  memset (&exp, 0, sizeof (expressionS));
 
   /* Set 4-byte alignment.  */
   frag_align (2, 0, 0);
@@ -1616,6 +1613,8 @@ seh_arm64_write_function_xdata (seh_context *c)
 {
   expressionS exp;
   unsigned int total_bytes = 0;
+
+  memset (&exp, 0, sizeof (expressionS));
 
   /* Set 4-byte alignment.  */
   frag_align (2, 0, 0);
@@ -1709,6 +1708,8 @@ seh_arm_write_function_pdata (seh_context *c)
   expressionS exp;
   unsigned int prol_len = 0, func_len = 0;
   unsigned int val;
+
+  memset (&exp, 0, sizeof (expressionS));
 
   /* Start address of the function.  */
   exp.X_op = O_symbol;
