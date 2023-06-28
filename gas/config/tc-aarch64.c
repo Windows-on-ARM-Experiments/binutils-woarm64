@@ -9589,6 +9589,14 @@ md_apply_fix (fixS * fixP, valueT * valP, segT seg)
     case BFD_RELOC_16_SECIDX:
       break;
 
+    case BFD_RELOC_16_SHIFTR2:
+      {
+        unsigned char *where = (unsigned char *) buf;
+        where[0] = value >> 2;
+        where[1] = value >> 10;
+      }
+      break;
+
     default:
       as_bad_where (fixP->fx_file, fixP->fx_line,
 		    _("unexpected %s fixup"),
@@ -9682,6 +9690,11 @@ cons_fix_new_aarch64 (fragS * frag, int where, int size, expressionS * exp)
     {
       exp->X_op = O_symbol;
       type = BFD_RELOC_16_SECIDX;
+    }
+  else if (exp->X_op == O_xdata_epilog)
+    {
+      exp->X_op = O_subtract;
+      type = BFD_RELOC_16_SHIFTR2;
     }
   else
     {
