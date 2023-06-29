@@ -1597,16 +1597,10 @@ seh_arm64_write_function_xdata (seh_context *c)
 
   c->xdata_addr = symbol_temp_new_now ();
 
-  /* Store function length   */
-  /* TODO: Implement function length > 1M   */
-  exp.X_op = O_subtract;
-  exp.X_add_symbol = c->end_addr;
-  exp.X_op_symbol = c->start_addr;
-  exp.X_add_number = 0;
-  if (resolve_expression (&exp) && exp.X_op == O_constant)
-    c->arm64_ctx.xdata_header.func_length = exp.X_add_number / 4;
+
 
   c->arm64_ctx.xdata_header.vers = 0;
+  c->arm64_ctx.xdata_header.func_length = 0;
 
     /* TODO: Implement logic for > 31 scopes   */
   c->arm64_ctx.xdata_header.e = 0;
@@ -1629,7 +1623,12 @@ seh_arm64_write_function_xdata (seh_context *c)
   c->arm64_ctx.xdata_header.ext_code_words = 0;
   c->arm64_ctx.xdata_header.reserved = 0;
 
-  out_ptr (&c->arm64_ctx.xdata_header, 4);
+  exp.X_op = O_xdata_epilog;
+  exp.X_add_symbol = c->end_addr;
+  exp.X_op_symbol = c->start_addr;
+  exp.X_add_number = 0;
+  emit_expr (&exp, 2);
+  out_ptr (&c->arm64_ctx.xdata_header, 2);
 
   /* TODO: Implement emitting of > 1 epilogue scope   */
 
@@ -1745,7 +1744,6 @@ write_function_pdata (seh_context *c)
     case seh_kind_x64:
       exp.X_op = O_symbol_rva;
       exp.X_add_number = 0;
-
       exp.X_add_symbol = c->start_addr;
       emit_expr (&exp, 4);
       exp.X_op = O_symbol_rva;
