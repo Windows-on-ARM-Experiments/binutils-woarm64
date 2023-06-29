@@ -343,7 +343,9 @@ typedef struct seh_arm64_pdata
 
 typedef struct seh_arm64_xdata_header
 {
-  unsigned int func_length : 18;
+  // actually 18 bits but first 16 bits
+  // are written independently using emit_expr
+  unsigned int func_length : 2;
   unsigned int vers : 2;
   unsigned int x : 1;
   unsigned int e : 1;
