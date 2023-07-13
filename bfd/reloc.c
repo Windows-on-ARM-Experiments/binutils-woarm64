@@ -1429,11 +1429,11 @@ ENUMDOC
   Section relative relocations.  Some targets need this for DWARF2.
 
 ENUM
-  BFD_RELOC_16_SHIFTR2
+  BFD_RELOC_18_SHIFTR2
 ENUMX
   BFD_RELOC_16_SECIDX
 ENUMDOC
-  16bit shifted two to the right. Used for aarch64 PE COFF XDATA sections.
+  18bit shifted two to the right. Used for aarch64 PE COFF XDATA sections.
 
 ENUM
   BFD_RELOC_32_GOT_PCREL
