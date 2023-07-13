@@ -20,6 +20,9 @@
 
 #include "obj-coff-seh.h"
 
+#ifndef O_xdata_18bit
+#define O_xdata_18bit O_md3
+#endif
 
 /* Private segment collection list.  */
 struct seh_seg_list {
@@ -379,7 +382,7 @@ obj_coff_seh_handler (int what ATTRIBUTE_UNUSED)
     expression (&seh_ctx_cur->handler);
 
   if (seh_get_target_kind () == seh_kind_arm64)
-    seh_ctx_cur->arm64_ctx.xdata_header.x = 1;
+    seh_ctx_cur->arm64_ctx.xdata_header.header.parts.x = 1;
 
   seh_ctx_cur->handler_data.X_op = O_constant;
   seh_ctx_cur->handler_data.X_add_number = 0;
@@ -575,11 +578,11 @@ obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
 
   if (seh_get_target_kind () == seh_kind_arm64)
   {
-    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_offset
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].header.parts.epilogue_start_offset
       = 0;
-    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].reserved = 0;
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].header.parts.reserved = 0;
     /* optimization to reuse unwind codes from the prologue   */
-    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_index
+    seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].header.parts.epilogue_start_index
       = seh_ctx_cur->arm64_ctx.unwind_codes_byte_count;
     seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].epilogue_start_addr
       = symbol_temp_new_now ();
@@ -1449,12 +1452,11 @@ seh_arm64_emit_unwind_codes (const seh_context *c)
 
   for (i = 0; i < (int)c->arm64_ctx.epilogue_scopes_count; i++)
   {
-    exp.X_op = O_xdata_epilog;
+    exp.X_op = O_xdata_18bit;
     exp.X_add_symbol = seh_ctx_cur->arm64_ctx.epilogue_scopes[i].epilogue_start_addr;
     exp.X_op_symbol = c->start_addr;
-    exp.X_add_number = 0;
-    emit_expr (&exp, 2);
-    out_ptr (seh_ctx_cur->arm64_ctx.epilogue_scopes + i, 2);
+    exp.X_add_number = seh_ctx_cur->arm64_ctx.epilogue_scopes[i].header.packed << 2;
+    emit_expr (&exp, 4);
   }
   
   for (i = 0; i < (int)c->arm64_ctx.unwind_codes_count; i++)
@@ -1599,12 +1601,12 @@ seh_arm64_write_function_xdata (seh_context *c)
 
 
 
-  c->arm64_ctx.xdata_header.vers = 0;
-  c->arm64_ctx.xdata_header.func_length = 0;
+  c->arm64_ctx.xdata_header.header.parts.vers = 0;
+  c->arm64_ctx.xdata_header.header.parts.func_length = 0;
 
     /* TODO: Implement logic for > 31 scopes   */
-  c->arm64_ctx.xdata_header.e = 0;
-  c->arm64_ctx.xdata_header.epilogue_count = c->arm64_ctx.epilogue_scopes_count;
+  c->arm64_ctx.xdata_header.header.parts.e = 0;
+  c->arm64_ctx.xdata_header.header.parts.epilogue_count = c->arm64_ctx.epilogue_scopes_count;
 
   /* TODO:  Implement > 31 unwind codes   */
 
@@ -1612,30 +1614,29 @@ seh_arm64_write_function_xdata (seh_context *c)
 
   if (total_bytes % 4 == 0)
   {
-    c->arm64_ctx.xdata_header.code_words = total_bytes / 4;
+    c->arm64_ctx.xdata_header.header.parts.code_words = total_bytes / 4;
   }
   else
   {
-    c->arm64_ctx.xdata_header.code_words = total_bytes / 4 + 1;
+    c->arm64_ctx.xdata_header.header.parts.code_words = total_bytes / 4 + 1;
   }
 
   c->arm64_ctx.xdata_header.ext_epilogue_count = 0;
   c->arm64_ctx.xdata_header.ext_code_words = 0;
   c->arm64_ctx.xdata_header.reserved = 0;
 
-  exp.X_op = O_xdata_epilog;
+  exp.X_op = O_xdata_18bit;
   exp.X_add_symbol = c->end_addr;
   exp.X_op_symbol = c->start_addr;
-  exp.X_add_number = 0;
-  emit_expr (&exp, 2);
-  out_ptr (&c->arm64_ctx.xdata_header, 2);
+  exp.X_add_number = c->arm64_ctx.xdata_header.header.packed << 2;
+  emit_expr (&exp, 4);
 
   /* TODO: Implement emitting of > 1 epilogue scope   */
 
   if (c->arm64_ctx.unwind_codes_byte_count > 0)
     seh_arm64_emit_unwind_codes (c);
 
-  if (c->arm64_ctx.xdata_header.x == 1)
+  if (c->arm64_ctx.xdata_header.header.parts.x == 1)
   {
     if (c->handler.X_op == O_symbol)
       c->handler.X_op = O_symbol_rva;
