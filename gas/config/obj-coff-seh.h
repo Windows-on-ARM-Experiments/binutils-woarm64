@@ -343,14 +343,20 @@ typedef struct seh_arm64_pdata
 
 typedef struct seh_arm64_xdata_header
 {
-  // actually 18 bits but first 16 bits
-  // are written independently using emit_expr
-  unsigned int func_length : 2;
-  unsigned int vers : 2;
-  unsigned int x : 1;
-  unsigned int e : 1;
-  unsigned int epilogue_count : 5;
-  unsigned int code_words : 5;
+  union
+  {
+    struct
+    {
+      unsigned int func_length : 18;
+      unsigned int vers : 2;
+      unsigned int x : 1;
+      unsigned int e : 1;
+      unsigned int epilogue_count : 5;
+      unsigned int code_words : 5;
+    } parts;
+    unsigned int packed : 32;
+  } header;
+
   unsigned int ext_epilogue_count : 16;
   unsigned int ext_code_words : 8;
   unsigned int reserved : 8;
@@ -358,11 +364,16 @@ typedef struct seh_arm64_xdata_header
 
 typedef struct seh_arm64_epilogue_scope
 {
-  // actually 18 bits but first 16 bits
-  // are written independently using emit_expr
-  unsigned int epilogue_start_offset : 2;
-  unsigned int reserved : 4;
-  unsigned int epilogue_start_index : 10;
+  union
+  {
+    struct 
+    {
+      unsigned int epilogue_start_offset : 18;
+      unsigned int reserved : 4;
+      unsigned int epilogue_start_index : 10;
+    } parts;
+    unsigned int packed : 32;
+  } header;
 
   symbolS *epilogue_start_addr;
 } seh_arm64_epilogue_scope;
