@@ -1178,6 +1178,8 @@ read_addend (arelent *rel, asection *s)
 	    addend = bfd_get_16 (s->owner, buf);
 	}
       break;
+    case 12:
+    case 21:
     case 26:
     case 32:
       ok = bfd_get_section_contents (s->owner, s, buf, rel->address, 4);
@@ -1196,8 +1198,8 @@ read_addend (arelent *rel, asection *s)
       break;
     }
   if (!ok)
-    einfo (_("%P: %H: cannot get section contents - auto-import exception\n"),
-	   s->owner, s, rel->address);
+    einfo (_("%P: %C: cannot get section contents - auto-import exception (bit size %d)\n"),
+	   s->owner, s, rel->address, rel->howto->bitsize);
   return addend;
 }
 
