@@ -18,7 +18,14 @@
    02110-1301, USA.  */
 
 #define TE_PEP
-#define COFF_WITH_pex64
+
+#ifdef TARGET_IS_aarch64pe
+  #define COFF_WITH_peAArch64
+#elif defined TARGET_IS_arm64pe
+  #define COFF_WITH_peAArch64
+#elif defined (TARGET_IS_i386pep)
+  #define COFF_WITH_pex64
+#endif
 
 #define TE_PE
 #define LEX_AT (LEX_BEGIN_NAME | LEX_NAME) /* Can have @'s inside labels.  */
