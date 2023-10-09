@@ -600,7 +600,13 @@ obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
     return;
   demand_empty_rest_of_line ();
 
-  if (seh_get_target_kind () == seh_kind_arm64)
+  if (seh_ctx_cur->arm64_ctx.epilogue_scopes_count == MAX_EPILOGUE_SCOPES)
+    {
+      as_warn (_("Ignoring epilogue. Overflow of max epilogues in xdata."));
+    }
+
+  if (seh_get_target_kind () == seh_kind_arm64 &&
+     seh_ctx_cur->arm64_ctx.epilogue_scopes_count < MAX_EPILOGUE_SCOPES)
   {
     seh_ctx_cur->arm64_ctx.epilogue_scopes[seh_ctx_cur->arm64_ctx.epilogue_scopes_count].header.parts.epilogue_start_offset
       = 0;
@@ -1501,7 +1507,7 @@ seh_arm64_emit_unwind_codes (const seh_context *c)
   {
     case 3:
       out_one (0);
-      /* fall through   */
+      break;
     case 2:
       out_two (0);
       break;
@@ -1623,8 +1629,6 @@ seh_arm64_write_function_xdata (seh_context *c)
 
   c->xdata_addr = symbol_temp_new_now ();
 
-
-
   c->arm64_ctx.xdata_header.header.parts.vers = 0;
   c->arm64_ctx.xdata_header.header.parts.func_length = 0;
 
@@ -1655,14 +1659,12 @@ seh_arm64_write_function_xdata (seh_context *c)
   exp.X_add_number = c->arm64_ctx.xdata_header.header.packed << 2;
   emit_expr (&exp, 4);
 
-  /* TODO: Implement emitting of > 1 epilogue scope   */
-
   if (c->arm64_ctx.unwind_codes_byte_count > 0)
     seh_arm64_emit_unwind_codes (c);
 
   if (c->arm64_ctx.xdata_header.header.parts.x == 1)
   {
-    if (c->handler.X_op == O_symbol)
+    if (c->handler.X_op == O_symbol) // XXX
       c->handler.X_op = O_symbol_rva;
 
     emit_expr (&c->handler, 4);
