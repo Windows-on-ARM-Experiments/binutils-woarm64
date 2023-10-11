@@ -1208,6 +1208,14 @@ _bfd_relocate_contents (reloc_howto_type *howto,
   if (howto->negate)
     relocation = -relocation;
 
+  if (howto->bitsize == 21 ||
+      howto->bitsize == 12 ||
+      howto->bitsize == 26)
+    {
+      _bfd_error_handler (_("%pB: %d bit relocation not currently supported.\n"),
+            input_bfd, howto->bitsize);
+    }
+
   /* Get the value we are going to relocate.  */
   x = read_reloc (input_bfd, location, howto);
 
