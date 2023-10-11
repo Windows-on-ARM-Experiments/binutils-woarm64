@@ -1251,9 +1251,6 @@ read_addend (arelent *rel, asection *s)
 	    addend = bfd_get_16 (s->owner, buf);
 	}
       break;
-    case 12:
-    case 21:
-    case 26:
     case 32:
       ok = bfd_get_section_contents (s->owner, s, buf, rel->address, 4);
       if (ok)
