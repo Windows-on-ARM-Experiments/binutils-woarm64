@@ -352,13 +352,13 @@ coff_aarch64_reloc_type_lookup (bfd * abfd ATTRIBUTE_UNUSED, bfd_reloc_code_real
     return &arm64_reloc_howto_branch26;
   case BFD_RELOC_AARCH64_ADR_HI21_PCREL:
   case BFD_RELOC_AARCH64_ADR_HI21_NC_PCREL:
+  case BFD_RELOC_AARCH64_ADR_GOT_PAGE:
     return &arm64_reloc_howto_page21;
   case BFD_RELOC_AARCH64_TSTBR14:
     return &arm64_reloc_howto_branch14;
   case BFD_RELOC_AARCH64_ADR_LO21_PCREL:
     return &arm64_reloc_howto_lo21;
   case BFD_RELOC_AARCH64_ADD_LO12:
-  case BFD_RELOC_AARCH64_ADR_GOT_PAGE:
     return &arm64_reloc_howto_pgoff12a;
   case BFD_RELOC_AARCH64_LDST8_LO12:
   case BFD_RELOC_AARCH64_LDST16_LO12:
