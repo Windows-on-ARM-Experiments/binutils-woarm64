@@ -1800,8 +1800,6 @@ write_function_pdata (seh_context *c)
 static inline bool
 write_pdata_xdata_records(void)
 {
-  if (seh_get_target_kind () == seh_kind_arm64 && seh_ctx_cur->arm64_ctx.unwind_codes_byte_count == 0)
-    return false;
-  else
-    return true;
+  return !(seh_get_target_kind () == seh_kind_arm64 && seh_ctx_cur->arm64_ctx.unwind_codes_byte_count == 0);
 }
+
