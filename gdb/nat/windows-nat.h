@@ -75,7 +75,7 @@ struct windows_thread_info
   union
   {
     CONTEXT context {};
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
     WOW64_CONTEXT wow64_context;
 #endif
   };
@@ -170,7 +170,7 @@ struct windows_process_info
   /* Contents of $_siginfo */
   EXCEPTION_RECORD siginfo_er {};
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   /* The target is a WOW64 process */
   bool wow64_process = false;
   /* Ignore first breakpoint exception of WOW64 process */
@@ -359,7 +359,7 @@ typedef BOOL WINAPI (EnumProcessModules_ftype) (HANDLE, HMODULE *, DWORD,
 						LPDWORD);
 extern EnumProcessModules_ftype *EnumProcessModules;
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 typedef BOOL WINAPI (EnumProcessModulesEx_ftype) (HANDLE, HMODULE *, DWORD,
 						  LPDWORD, DWORD);
 extern EnumProcessModulesEx_ftype *EnumProcessModulesEx;
@@ -390,7 +390,7 @@ extern GetCurrentConsoleFont_ftype *GetCurrentConsoleFont;
 typedef COORD WINAPI (GetConsoleFontSize_ftype) (HANDLE, DWORD);
 extern GetConsoleFontSize_ftype *GetConsoleFontSize;
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 typedef DWORD WINAPI (Wow64SuspendThread_ftype) (HANDLE);
 extern Wow64SuspendThread_ftype *Wow64SuspendThread;
 

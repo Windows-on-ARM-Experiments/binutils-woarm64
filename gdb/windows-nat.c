@@ -111,7 +111,7 @@ struct windows_per_inferior : public windows_process_info
   /* Counts of things.  */
   int saw_create = 0;
   int open_process_used = 0;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   void *wow64_dbgbreak = nullptr;
 #endif
 
@@ -178,9 +178,14 @@ enum
 #define CONTEXT_EXTENDED_REGISTERS 0
 #endif
 
+#if defined(_ARM64_)
+#define CONTEXT_DEBUGGER_DR CONTEXT_FULL | CONTEXT_FLOATING_POINT \
+	| CONTEXT_DEBUG_REGISTERS | CONTEXT_EXTENDED_REGISTERS
+#else // !_ARM64_
 #define CONTEXT_DEBUGGER_DR CONTEXT_FULL | CONTEXT_FLOATING_POINT \
 	| CONTEXT_SEGMENTS | CONTEXT_DEBUG_REGISTERS \
 	| CONTEXT_EXTENDED_REGISTERS
+#endif // _ARM64_
 
 #define DR6_CLEAR_VALUE 0xffff0ff0
 
@@ -560,7 +565,7 @@ windows_nat_target::add_thread (ptid_t ptid, HANDLE h, void *tlb,
     return th;
 
   CORE_ADDR base = (CORE_ADDR) (uintptr_t) tlb;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   /* For WOW64 processes, this is actually the pointer to the 64bit TIB,
      and the 32bit TIB is exactly 2 pages after it.  */
   if (windows_process.wow64_process)
@@ -649,7 +654,7 @@ windows_fetch_one_register (struct regcache *regcache,
   gdb_assert (!th->reload_context);
 
   char *context_ptr = (char *) &th->context;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   if (windows_process.wow64_process)
     context_ptr = (char *) &th->wow64_context;
 #endif
@@ -735,7 +740,8 @@ windows_nat_target::fetch_registers (struct regcache *regcache, int r)
 	}
       else
 #endif
-#ifdef __x86_64__
+#if !defined(__aarch64__)
+#if defined(__x86_64__)
       if (windows_process.wow64_process)
 	{
 	  th->wow64_context.ContextFlags = CONTEXT_DEBUGGER_DR;
@@ -754,7 +760,7 @@ windows_nat_target::fetch_registers (struct regcache *regcache, int r)
 	    }
 	}
       else
-#endif
+#endif // __x86_64__
 	{
 	  th->context.ContextFlags = CONTEXT_DEBUGGER_DR;
 	  CHECK (GetThreadContext (th->h, &th->context));
@@ -771,6 +777,7 @@ windows_nat_target::fetch_registers (struct regcache *regcache, int r)
 	      windows_process.dr[7] = th->context.Dr7;
 	    }
 	}
+#endif // !__aarch64__
       th->reload_context = false;
     }
 
@@ -794,7 +801,7 @@ windows_store_one_register (const struct regcache *regcache,
   gdb_assert (r >= 0);
 
   char *context_ptr = (char *) &th->context;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   if (windows_process.wow64_process)
     context_ptr = (char *) &th->wow64_context;
 #endif
@@ -1069,7 +1076,7 @@ display_selector (HANDLE thread, DWORD sel)
 {
   LDT_ENTRY info;
   BOOL ret;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   if (windows_process.wow64_process)
     ret = Wow64GetThreadSelectorEntry (thread, sel, &info);
   else
@@ -1163,7 +1170,8 @@ display_selectors (const char * args, int from_tty)
 
   if (!args)
     {
-#ifdef __x86_64__
+#if !defined(__aarch64__)
+#if defined(__x86_64__)
       if (windows_process.wow64_process)
 	{
 	  gdb_puts ("Selector $cs\n");
@@ -1186,7 +1194,7 @@ display_selectors (const char * args, int from_tty)
 			    current_windows_thread->wow64_context.SegGs);
 	}
       else
-#endif
+#endif // __x86_64__
 	{
 	  gdb_puts ("Selector $cs\n");
 	  display_selector (current_windows_thread->h,
@@ -1207,6 +1215,7 @@ display_selectors (const char * args, int from_tty)
 	  display_selector (current_windows_thread->h,
 			    current_windows_thread->context.SegGs);
 	}
+#endif // !__aarch64__
     }
   else
     {
@@ -1267,7 +1276,8 @@ windows_nat_target::windows_continue (DWORD continue_status, int id,
   for (auto &th : windows_process.thread_list)
     if (id == -1 || id == (int) th->tid)
       {
-#ifdef __x86_64__
+#if !defined(__aarch64__)
+#if defined(__x86_64__)
 	if (windows_process.wow64_process)
 	  {
 	    if (th->debug_registers_changed)
@@ -1298,7 +1308,7 @@ windows_nat_target::windows_continue (DWORD continue_status, int id,
 	      }
 	  }
 	else
-#endif
+#endif // __x86_64__
 	  {
 	    if (th->debug_registers_changed)
 	      {
@@ -1326,6 +1336,7 @@ windows_nat_target::windows_continue (DWORD continue_status, int id,
 		th->context.ContextFlags = 0;
 	      }
 	  }
+#endif // !__aarch64__
 	th->resume ();
       }
     else
@@ -1435,7 +1446,8 @@ windows_nat_target::resume (ptid_t ptid, int step, enum gdb_signal sig)
   th = windows_process.thread_rec (inferior_ptid, DONT_INVALIDATE_CONTEXT);
   if (th)
     {
-#ifdef __x86_64__
+#if !defined(__aarch64__)
+#if defined(__x86_64__)
       if (windows_process.wow64_process)
 	{
 	  if (step)
@@ -1464,7 +1476,7 @@ windows_nat_target::resume (ptid_t ptid, int step, enum gdb_signal sig)
 	    }
 	}
       else
-#endif
+#endif // __x86_64__
 	{
 	  if (step)
 	    {
@@ -1491,6 +1503,7 @@ windows_nat_target::resume (ptid_t ptid, int step, enum gdb_signal sig)
 	      th->context.ContextFlags = 0;
 	    }
 	}
+#endif // !__aarch64__
     }
 
   /* Allow continuing with the same signal that interrupted us.
@@ -1508,7 +1521,7 @@ void
 windows_nat_target::interrupt ()
 {
   DEBUG_EVENTS ("interrupt");
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   if (windows_process.wow64_process)
     {
       /* Call DbgUiRemoteBreakin of the 32bit ntdll.dll in the target process.
@@ -1895,7 +1908,8 @@ windows_nat_target::do_initial_windows_stuff (DWORD pid, bool attaching)
   clear_proceed_status (0);
   init_wait_for_inferior ();
 
-#ifdef __x86_64__
+#if !defined(__aarch64__)
+#if defined(__x86_64__)
   windows_process.ignore_first_breakpoint
     = !attaching && windows_process.wow64_process;
 
@@ -1905,11 +1919,12 @@ windows_nat_target::do_initial_windows_stuff (DWORD pid, bool attaching)
       windows_process.segment_register_p = amd64_windows_segment_register_p;
     }
   else
-#endif
+#endif // __x86_64__
     {
       windows_process.mappings  = i386_mappings;
       windows_process.segment_register_p = i386_windows_segment_register_p;
     }
+#endif // !__aarch64__
 
   inferior_appeared (inf, pid);
   inf->attach_flag = attaching;
@@ -2054,7 +2069,7 @@ windows_nat_target::attach (const char *args, int from_tty)
 
   target_announce_attach (from_tty, pid);
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   HANDLE h = OpenProcess (PROCESS_QUERY_INFORMATION, FALSE, pid);
   if (h != NULL)
     {
@@ -2793,7 +2808,7 @@ windows_nat_target::create_inferior (const char *exec_file,
     error (_("Error creating process %s, (error %u: %s)"),
 	   exec_file, *ret, strwinerror (*ret));
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   BOOL wow64;
   if (IsWow64Process (pi.hProcess, &wow64))
     windows_process.wow64_process = wow64;
@@ -2947,7 +2962,7 @@ windows_xfer_siginfo (gdb_byte *readbuf, ULONGEST offset, ULONGEST len,
   char *buf = (char *) &windows_process.siginfo_er;
   size_t bufsize = sizeof (windows_process.siginfo_er);
 
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
   EXCEPTION_RECORD32 er32;
   if (windows_process.wow64_process)
     {

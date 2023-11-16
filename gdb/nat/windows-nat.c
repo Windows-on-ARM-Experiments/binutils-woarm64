@@ -56,7 +56,7 @@ LookupPrivilegeValueA_ftype *LookupPrivilegeValueA;
 OpenProcessToken_ftype *OpenProcessToken;
 GetCurrentConsoleFont_ftype *GetCurrentConsoleFont;
 GetConsoleFontSize_ftype *GetConsoleFontSize;
-#ifdef __x86_64__
+#if defined(__x86_64__) || defined(__aarch64__)
 Wow64SuspendThread_ftype *Wow64SuspendThread;
 Wow64GetThreadContext_ftype *Wow64GetThreadContext;
 Wow64SetThreadContext_ftype *Wow64SetThreadContext;
