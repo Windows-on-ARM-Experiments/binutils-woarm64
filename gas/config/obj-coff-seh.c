@@ -41,8 +41,9 @@ static struct seh_seg_list *p_segcur = NULL;
 
 static void write_function_xdata (seh_context *);
 static void write_function_pdata (seh_context *);
+static bool write_pdata_xdata_records(void);
 
-
+
 /* Build based on segment the derived .pdata/.xdata
    segment name containing origin segment's postfix name part.  */
 static char *
@@ -72,11 +73,6 @@ get_pxdata_name (segT seg, const char *base_name)
   return sname;
 }
 
-static inline bool
-write_pdata_xdata_records(void)
-{
-  return (seh_ctx_cur->arm64_ctx.unwind_codes_byte_count > 0) ? true : false;
-}
 
 /* Allocate a seh_seg_list structure.  */
 static struct seh_seg_list *
@@ -473,7 +469,7 @@ do_seh_endproc (void)
 {
   seh_ctx_cur->end_addr = symbol_temp_new_now ();
 
-  if (seh_get_target_kind () == seh_kind_arm64 && write_pdata_xdata_records ())
+  if (write_pdata_xdata_records ())
   {
     write_function_xdata (seh_ctx_cur);
     write_function_pdata (seh_ctx_cur);
@@ -1824,3 +1820,12 @@ write_function_pdata (seh_context *c)
 
   subseg_set (save_seg, save_subseg);
 }
+
+static inline bool
+write_pdata_xdata_records(void)
+{
+  seh_kind kind = seh_get_target_kind ();
+  if (kind == seh_kind_arm64) return seh_ctx_cur->arm64_ctx.unwind_codes_byte_count > 0;
+  return kind == seh_kind_x64;
+}
+
