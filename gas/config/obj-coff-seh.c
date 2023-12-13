@@ -20,6 +20,9 @@
 
 #include "obj-coff-seh.h"
 
+#ifndef O_xdata_18bit
+#define O_xdata_18bit O_md3
+#endif
 
 /* Private segment collection list.  */
 struct seh_seg_list {
@@ -38,8 +41,33 @@ static struct seh_seg_list *p_segcur = NULL;
 
 static void write_function_xdata (seh_context *);
 static void write_function_pdata (seh_context *);
+static bool can_write_pdata_xdata_records(void);
 
-
+/* arm64 unwind code structs   */
+
+#define ARM64_UNW_END	  0b11100100U
+#define ARM64_UNW_ENDC	 0b11100101U
+#define ARM64_UNW_ALLOCS       0b000U
+#define ARM64_UNW_ALLOCM       0b11000U
+#define ARM64_UNW_ALLOCL       0b11100000U
+#define ARM64_UNW_SAVEREG      0b110100U
+#define ARM64_UNW_SAVEREGX     0b1101010U
+#define ARM64_UNW_SAVEREGP     0b110010U
+#define ARM64_UNW_SAVEREGPX    0b110011U
+#define ARM64_UNW_SAVEFREGP    0b1101100U
+#define ARM64_UNW_SAVEFREGPX   0b1101101U
+#define ARM64_UNW_SAVEFREG     0b1101110U
+#define ARM64_UNW_SAVEFREGX    0b11011110U
+#define ARM64_UNW_SAVELRPAIR   0b1101011U
+#define ARM64_UNW_SAVEFPLR     0b01U
+#define ARM64_UNW_SAVEFPLRX    0b10U
+#define ARM64_UNW_SAVER19R20X  0b001U
+#define ARM64_UNW_ADDFP	0b11100010U
+#define ARM64_UNW_NOP	  0b11100011U
+#define ARM64_UNW_PACSIGNLR    0b11111100U
+#define ARM64_UNW_SETFP	0b11100001U
+#define ARM64_UNW_SAVENEXT     0b11100110U
+
 /* Build based on segment the derived .pdata/.xdata
    segment name containing origin segment's postfix name part.  */
 static char *
@@ -217,6 +245,8 @@ seh_get_target_kind (void)
     case bfd_arch_ia64:
       /* Should return seh_kind_x64.  But not implemented yet.  */
       return seh_kind_unknown;
+    case bfd_arch_aarch64:
+      return seh_kind_arm64;
     default:
       break;
     }
@@ -249,6 +279,35 @@ verify_context_and_target (const char *directive, seh_kind target)
       return 0;
     }
   return verify_context (directive);
+}
+
+/* Provide support for mulitple targets   */
+
+static int
+verify_context_and_targets (const char *directive, const seh_kind targets[], int count_targets)
+{
+  bool match = false;
+  seh_kind target_kind = seh_get_target_kind ();
+
+  for (int i=0; i < count_targets; i++)
+    {
+      if (target_kind == targets[i])
+      {
+	match = true;
+	break;
+      }
+    }
+
+  if (match == false)
+    {
+      as_warn (_("%s ignored for this target"), directive);
+      ignore_rest_of_line ();
+      return 0;
+    }
+  else
+    {
+      return verify_context (directive);
+    }
 }
 
 /* Skip whitespace and a comma.  Error if the comma is not seen.  */
@@ -309,6 +368,7 @@ obj_coff_seh_handler (int what ATTRIBUTE_UNUSED)
 {
   char *symbol_name;
   char name_end;
+  seh_kind target_kind = seh_get_target_kind ();
 
   if (!verify_context (".seh_handler"))
     return;
@@ -349,7 +409,8 @@ obj_coff_seh_handler (int what ATTRIBUTE_UNUSED)
   if (!skip_whitespace_and_comma (0))
     return;
 
-  if (seh_get_target_kind () == seh_kind_x64)
+  if ((target_kind == seh_kind_x64) ||
+      (target_kind == seh_kind_arm64))
     {
       do
 	{
@@ -381,12 +442,33 @@ obj_coff_seh_handler (int what ATTRIBUTE_UNUSED)
 static void
 obj_coff_seh_handlerdata (int what ATTRIBUTE_UNUSED)
 {
-  if (!verify_context_and_target (".seh_handlerdata", seh_kind_x64))
+  const seh_kind targets[] = { seh_kind_x64, seh_kind_arm64 };
+  if (!verify_context_and_targets (".seh_handlerdata", targets, sizeof(targets) / sizeof(seh_kind)))
     return;
   demand_empty_rest_of_line ();
 
   switch_xdata (seh_ctx_cur->subsection + 1, seh_ctx_cur->code_seg);
 }
+
+/* Obtain available unwind element   */
+
+static inline seh_arm64_unwind_code*
+seh_arm64_get_unwind_element (void)
+{
+  if (seh_ctx_cur == NULL)
+    return NULL;
+
+  if (seh_ctx_cur->unwind_codes_count == seh_ctx_cur->unwind_codes_max)
+    {
+      seh_ctx_cur->unwind_codes_max += 16;
+      seh_ctx_cur->unwind_codes = XRESIZEVEC (seh_arm64_unwind_code,
+				       seh_ctx_cur->unwind_codes,
+				       seh_ctx_cur->unwind_codes_max);
+    }
+
+  return &seh_ctx_cur->unwind_codes[seh_ctx_cur->unwind_codes_count++];
+}
+
 
 /* Mark end of current context.  */
 
@@ -395,8 +477,11 @@ do_seh_endproc (void)
 {
   seh_ctx_cur->end_addr = symbol_temp_new_now ();
 
-  write_function_xdata (seh_ctx_cur);
-  write_function_pdata (seh_ctx_cur);
+  if (can_write_pdata_xdata_records ())
+  {
+    write_function_xdata (seh_ctx_cur);
+    write_function_pdata (seh_ctx_cur);
+  }
   seh_ctx_cur = NULL;
 }
 
@@ -420,6 +505,7 @@ obj_coff_seh_proc (int what ATTRIBUTE_UNUSED)
 {
   char *symbol_name;
   char name_end;
+  seh_kind kind;
 
   if (seh_ctx_cur != NULL)
     {
@@ -435,14 +521,23 @@ obj_coff_seh_proc (int what ATTRIBUTE_UNUSED)
     }
 
   seh_ctx_cur = XCNEW (seh_context);
+  memset (seh_ctx_cur, 0, sizeof (seh_context));
 
+  seh_ctx_cur->handler.X_op = O_illegal;
   seh_ctx_cur->code_seg = now_seg;
+  kind = seh_get_target_kind ();
 
-  if (seh_get_target_kind () == seh_kind_x64)
+  if (kind == seh_kind_x64 || kind == seh_kind_arm64)
     {
       x_segcur = seh_hash_find_or_make (seh_ctx_cur->code_seg, ".xdata");
       seh_ctx_cur->subsection = x_segcur->subseg;
       x_segcur->subseg += 2;
+
+      if (kind == seh_kind_arm64)
+	{
+	  seh_ctx_cur->unwind_codes_count = 0;
+	  seh_ctx_cur->epilogue_scopes_count = 0;
+	}
     }
 
   SKIP_WHITESPACE ();
@@ -470,6 +565,98 @@ obj_coff_seh_endprologue (int what ATTRIBUTE_UNUSED)
     as_warn (_("duplicate .seh_endprologue in .seh_proc block"));
   else
     seh_ctx_cur->endprologue_addr = symbol_temp_new_now ();
+
+  if (seh_get_target_kind () == seh_kind_arm64)
+    {
+      int n = seh_ctx_cur->unwind_codes_count;
+
+      /* unwind codes need to be reversed */
+      for(int i = 0; i < n / 2; ++i)
+	{
+	  seh_arm64_unwind_code temp = seh_ctx_cur->unwind_codes[i];
+	  seh_ctx_cur->unwind_codes[i] = seh_ctx_cur->unwind_codes[n-i-1];
+	  seh_ctx_cur->unwind_codes[n-i-1] = temp;
+	}
+
+    /* End code */
+    seh_arm64_unwind_code *end_element = seh_arm64_get_unwind_element ();
+
+    if (end_element == NULL)
+      {
+	as_warn (_("no unwind element available."));
+	return;
+      }
+
+    end_element->end.code = ARM64_UNW_END;
+    end_element->type = end;
+    seh_ctx_cur->unwind_codes_byte_count++;
+  }
+}
+
+/* Only format for max 32 epilogues currently implemented. */
+#define MAX_EPILOGUE_SCOPES 32
+
+static void
+obj_coff_seh_startepilogue (int what ATTRIBUTE_UNUSED)
+{
+  if (!verify_context (".seh_startepilogue")
+      || !seh_validate_seg (".seh_startepilogue"))
+    return;
+  demand_empty_rest_of_line ();
+
+  if (seh_ctx_cur->epilogue_scopes_count == MAX_EPILOGUE_SCOPES)
+    {
+      as_warn (_("Ignoring epilogue. Overflow of max epilogues in xdata."));
+    }
+
+  if (seh_get_target_kind () == seh_kind_arm64 &&
+     seh_ctx_cur->epilogue_scopes_count < MAX_EPILOGUE_SCOPES)
+    {
+      if (seh_ctx_cur->epilogue_scopes_count == seh_ctx_cur->epilogue_scopes_max)
+	{
+	  seh_ctx_cur->epilogue_scopes_max += 8;
+	  seh_ctx_cur->epilogue_scopes = XRESIZEVEC (seh_arm64_epilogue_scope,
+						     seh_ctx_cur->epilogue_scopes,
+						     seh_ctx_cur->epilogue_scopes_max);
+	}
+
+      seh_arm64_epilogue_scope *s = seh_ctx_cur->epilogue_scopes + seh_ctx_cur->epilogue_scopes_count;
+      s->start_index = seh_ctx_cur->unwind_codes_byte_count;
+      s->epilogue_start_addr = symbol_temp_new_now ();
+      seh_ctx_cur->epilogue_scopes_count++;
+    }
+}
+
+static void
+obj_coff_seh_endepilogue(int what ATTRIBUTE_UNUSED)
+{
+  if (!verify_context (".seh_endepilogue")
+      || !seh_validate_seg (".seh_endepilogue"))
+    return;
+
+  /* End code */
+  seh_arm64_unwind_code *end_element = seh_arm64_get_unwind_element ();
+
+  if (end_element == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  end_element->end.code = ARM64_UNW_END;
+  end_element->type = end;
+  seh_ctx_cur->unwind_codes_byte_count++;
+
+  demand_empty_rest_of_line ();
+}
+
+static void
+obj_coff_seh_endfunclet(int what ATTRIBUTE_UNUSED)
+{
+  if (!verify_context (".seh_endfunclet")
+      || !seh_validate_seg (".seh_endfunclet"))
+    return;
+  demand_empty_rest_of_line ();
 }
 
 /* End-of-file hook.  */
@@ -655,42 +842,447 @@ obj_coff_seh_save (int what)
   seh_x64_make_prologue_element (code, reg, off);
 }
 
+/* ARM64 save_reg handlers   */
+static void
+obj_coff_seh_save_reg (int what)
+{
+  int reg;
+  offsetT off;
+  char name_end;
+  char *symbol_name = NULL;
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  switch (what)
+  {
+    case 0:
+      if (!verify_context_and_target (".seh_save_reg", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_reg"))
+	return;
+      break;
+    case 1:
+      if (!verify_context_and_target (".seh_save_reg_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_reg_x"))
+	return;
+      break;
+    case 2:
+      if (!verify_context_and_target (".seh_save_regp", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_regp"))
+	return;
+      break;
+    case 3:
+      if (!verify_context_and_target (".seh_save_regp_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_regp_x"))
+	return;
+      break;
+    case 4:
+      if (!verify_context_and_target (".seh_save_lrpair", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_lrpair"))
+	return;
+      break;
+    case 5:
+      if (!verify_context_and_target (".seh_save_fregp", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_fregp"))
+	return;
+      break;
+    case 6:
+      if (!verify_context_and_target (".seh_save_fregp_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_fregp_x"))
+	return;
+      break;
+    case 7:
+      if (!verify_context_and_target (".seh_save_freg", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_freg"))
+	return;
+      break;
+    case 8:
+      if (!verify_context_and_target (".seh_save_freg_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_freg_x"))
+	return;
+      break;
+    default:
+      as_bad (_("invalid pseudo operation."));
+      return;
+  }
+
+  SKIP_WHITESPACE ();
+  name_end = get_symbol_name (&symbol_name);
+
+  reg = atoi(symbol_name + 1);
+
+  (void) restore_line_pointer (name_end);
+
+  if (!skip_whitespace_and_comma (1))
+    return;
+
+  off = get_absolute_expression ();
+  demand_empty_rest_of_line ();
+
+  if (reg < 0)
+    return;
+  if (off < 0)
+    {
+      as_bad (_("offset is negative"));
+      return;
+    }
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  switch (what)
+  {
+    case 0:
+      arm64_element->save_reg.code = ARM64_UNW_SAVEREG;
+      arm64_element->save_reg.reg = reg - 19;
+      arm64_element->save_reg.offset = off / 8;
+      arm64_element->type = save_reg;
+      break;
+    case 1:
+      arm64_element->save_reg_x.code = ARM64_UNW_SAVEREGX;
+      arm64_element->save_reg_x.reg = reg - 19;
+      arm64_element->save_reg_x.offset = off / 8 - 1;
+      arm64_element->type = save_reg_x;
+      break;
+    case 2:
+      arm64_element->save_regp.code = ARM64_UNW_SAVEREGP;
+      arm64_element->save_regp.reg = reg - 19;
+      arm64_element->save_regp.offset = off / 8;
+      arm64_element->type = save_regp;
+      break;
+    case 3:
+      arm64_element->save_regp_x.code = ARM64_UNW_SAVEREGPX;
+      arm64_element->save_regp_x.reg = reg - 19;
+      arm64_element->save_regp_x.offset = off / 8 - 1;
+      arm64_element->type = save_regp_x;
+      break;
+    case 4:
+      arm64_element->save_lrpair.code = ARM64_UNW_SAVELRPAIR;
+      arm64_element->save_lrpair.reg = reg / 2 - 19;
+      arm64_element->save_lrpair.offset = off / 8;
+      arm64_element->type = save_lrpair;
+      break;
+    case 5:
+      arm64_element->save_fregp.code = ARM64_UNW_SAVEFREGP;
+      arm64_element->save_fregp.reg = reg - 8;
+      arm64_element->save_fregp.offset = off / 8;
+      arm64_element->type = save_fregp;
+      break;
+    case 6:
+      arm64_element->save_fregp_x.code = ARM64_UNW_SAVEFREGPX;
+      arm64_element->save_fregp_x.reg = reg - 8;
+      arm64_element->save_fregp_x.offset = off / 8 - 1;
+      arm64_element->type = save_fregp_x;
+      break;
+    case 7:
+      arm64_element->save_freg.code = ARM64_UNW_SAVEFREG;
+      arm64_element->save_freg.reg = reg - 8;
+      arm64_element->save_freg.offset = off / 8;
+      arm64_element->type = save_freg;
+      break;
+    case 8:
+      arm64_element->save_freg_x.code = ARM64_UNW_SAVEFREGX;
+      arm64_element->save_freg_x.reg = reg - 8;
+      arm64_element->save_freg_x.offset = off / 8 - 1;
+      arm64_element->type = save_freg_x;
+      break;
+    default:
+      as_bad (_("Invalid pseudo operation."));
+      break;
+  }
+
+  /*  all save_reg variations consume 2 bytes   */
+  seh_ctx_cur->unwind_codes_byte_count += 2;
+}
+
+/* ARM64 save_lplr handlers   */
+static void
+obj_coff_seh_save_fplr (int what)
+{
+  offsetT off;
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (what == 0)
+    {
+      if (!verify_context_and_target (".seh_save_fplr", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_fplr"))
+	return;
+    }
+  else if (what == 1)
+    {
+      if (!verify_context_and_target (".seh_save_fplr_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_fplr_x"))
+	return;
+    }
+  else if (what == 2)
+    {
+      if (!verify_context_and_target (".seh_save_r19r20_x", seh_kind_arm64)
+	  || !seh_validate_seg (".seh_save_r19r20_x"))
+	return;
+    }
+
+  SKIP_WHITESPACE ();
+  off = get_absolute_expression ();
+  demand_empty_rest_of_line ();
+
+  if (off < 0)
+    {
+      as_bad (_("offset is negative"));
+      return;
+    }
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  switch (what)
+  {
+    case 0:
+      arm64_element->save_fplr.code = ARM64_UNW_SAVEFPLR;
+      arm64_element->save_fplr.offset = off / 8;
+      arm64_element->type = save_fplr;
+      break;
+    case 1:
+      arm64_element->save_fplr.code = ARM64_UNW_SAVEFPLRX;
+      arm64_element->save_fplr.offset = off / 8 - 1;
+      arm64_element->type = save_fplr_x;
+      break;
+    case 2:
+      arm64_element->save_r19r20_x.code = ARM64_UNW_SAVER19R20X;
+      arm64_element->save_r19r20_x.offset = off / 8;
+      arm64_element->type = save_r19r20_x;
+      break;
+    default:
+      as_bad (_("Invalid pseudo operation."));
+      break;
+  }
+
+  seh_ctx_cur->unwind_codes_byte_count++;
+}
+
+/* ARM64 add_fp handler   */
+static void
+obj_coff_seh_add_fp (int what ATTRIBUTE_UNUSED)
+{
+  offsetT off;
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (!verify_context_and_target (".seh_add_fp", seh_kind_arm64)
+      || !seh_validate_seg (".seh_add_fp"))
+    return;
+
+  SKIP_WHITESPACE ();
+  off = get_absolute_expression ();
+  demand_empty_rest_of_line ();
+
+  if (off < 0)
+    {
+      as_bad (_("offset is negative"));
+      return;
+    }
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  arm64_element->add_fp.code = ARM64_UNW_ADDFP;
+  arm64_element->add_fp.offset = off / 8;
+  arm64_element->type = add_fp;
+
+  seh_ctx_cur->unwind_codes_byte_count += 2;
+}
+
+/* ARM64 nop handler   */
+static void
+obj_coff_seh_nop (int what ATTRIBUTE_UNUSED)
+{
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (!verify_context_and_target (".seh_nop", seh_kind_arm64)
+      || !seh_validate_seg (".seh_nop"))
+    return;
+
+  SKIP_WHITESPACE ();
+  demand_empty_rest_of_line ();
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  arm64_element->nop.code = ARM64_UNW_NOP;
+  arm64_element->type = nop;
+
+  seh_ctx_cur->unwind_codes_byte_count++;
+}
+
+/* ARM64 pac_sign_lr handler   */
+static void
+obj_coff_seh_pac_sign_lr (int what ATTRIBUTE_UNUSED)
+{
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (!verify_context_and_target (".seh_pac_sign_lr", seh_kind_arm64)
+      || !seh_validate_seg (".seh_pac_sign_lr"))
+    return;
+
+  SKIP_WHITESPACE ();
+  demand_empty_rest_of_line ();
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  arm64_element->pac_sign_lr.code = ARM64_UNW_PACSIGNLR;
+  arm64_element->type = pac_sign_lr;
+
+  seh_ctx_cur->unwind_codes_byte_count++;
+}
+
+/* ARM64 set_fp handler   */
+static void
+obj_coff_seh_set_fp (int what ATTRIBUTE_UNUSED)
+{
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (!verify_context_and_target (".seh_set_fp", seh_kind_arm64)
+      || !seh_validate_seg (".seh_set_fp"))
+    return;
+
+  SKIP_WHITESPACE ();
+  demand_empty_rest_of_line ();
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  arm64_element->set_fp.code = ARM64_UNW_SETFP;
+  arm64_element->type = set_fp;
+
+  seh_ctx_cur->unwind_codes_byte_count++;
+}
+
+/* ARM64 save_next handler   */
+static void
+obj_coff_seh_save_next (int what ATTRIBUTE_UNUSED)
+{
+  seh_arm64_unwind_code *arm64_element = NULL;
+
+  if (!verify_context_and_target (".seh_save_next", seh_kind_arm64)
+      || !seh_validate_seg (".seh_save_next"))
+    return;
+
+  SKIP_WHITESPACE ();
+  demand_empty_rest_of_line ();
+
+  if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+    {
+      as_warn (_("no unwind element available."));
+      return;
+    }
+
+  arm64_element->save_next.code = ARM64_UNW_SAVENEXT;
+  arm64_element->type = save_next;
+
+  seh_ctx_cur->unwind_codes_byte_count++;
+}
+
 /* Add a stack-allocation token to current context.  */
 
 static void
 obj_coff_seh_stackalloc (int what ATTRIBUTE_UNUSED)
 {
+  const seh_kind targets[] = { seh_kind_x64, seh_kind_arm64 };
   offsetT off;
   int code, info;
+  seh_arm64_unwind_code *arm64_element = NULL;
 
-  if (!verify_context_and_target (".seh_stackalloc", seh_kind_x64)
+  if (!verify_context_and_targets (".seh_stackalloc", targets, sizeof(targets) / sizeof(seh_kind))
       || !seh_validate_seg (".seh_stackalloc"))
     return;
 
   off = get_absolute_expression ();
   demand_empty_rest_of_line ();
 
-  if (off == 0)
-    return;
-  if (off < 0)
-    {
-      as_bad (_(".seh_stackalloc offset is negative"));
-      return;
-    }
+  switch (seh_get_target_kind ())
+  {
+    case seh_kind_x64:
+      if (off == 0)
+	return;
+      if (off < 0)
+	{
+	  as_bad (_(".seh_stackalloc offset is negative"));
+	  return;
+	}
 
-  if ((off & 7) == 0 && off <= 128)
-    code = UWOP_ALLOC_SMALL, info = (off - 8) >> 3, off = 0;
-  else if ((off & 7) == 0 && off <= (offsetT) (0xffff * 8))
-    code = UWOP_ALLOC_LARGE, info = 0, off >>= 3;
-  else if (off <= (offsetT) 0xffffffff)
-    code = UWOP_ALLOC_LARGE, info = 1;
-  else
-    {
-      as_bad (_(".seh_stackalloc offset out of range"));
-      return;
-    }
+      if ((off & 7) == 0 && off <= 128)
+	code = UWOP_ALLOC_SMALL, info = (off - 8) >> 3, off = 0;
+      else if ((off & 7) == 0 && off <= (offsetT) (0xffff * 8))
+	code = UWOP_ALLOC_LARGE, info = 0, off >>= 3;
+      else if (off <= (offsetT) 0xffffffff)
+	code = UWOP_ALLOC_LARGE, info = 1;
+      else
+	{
+	  as_bad (_(".seh_stackalloc offset out of range"));
+	  return;
+	}
 
-  seh_x64_make_prologue_element (code, info, off);
+      seh_x64_make_prologue_element (code, info, off);
+      break;
+    case seh_kind_arm64:
+      if ((arm64_element = seh_arm64_get_unwind_element ()) == NULL)
+	{
+	  as_warn (_("no unwind element available."));
+	  return;
+	}
+
+      /* arm64 offset should be encoded in multiples of sixteen   */
+      if ((off & 0xf) != 0)
+	{
+	  as_bad (_(".seh_stackalloc offset < 16-byte stack alignment"));
+	  return;
+	}
+      else if (off < 0x200)
+	{
+	  arm64_element->alloc_s.offset = off / 16;
+	  arm64_element->alloc_s.code = ARM64_UNW_ALLOCS;
+	  arm64_element->type = alloc_s;
+	  seh_ctx_cur->unwind_codes_byte_count++;
+	}
+      else if (off < 0x8000)
+	{
+	  arm64_element->alloc_m.offset = off / 16;
+	  arm64_element->alloc_m.code = ARM64_UNW_ALLOCM;
+	  arm64_element->type = alloc_m;
+	  seh_ctx_cur->unwind_codes_byte_count += 2;
+	}
+      else if (off < 0x10000000)
+	{
+	  arm64_element->alloc_l.offset = off / 16;
+	  arm64_element->alloc_l.code = ARM64_UNW_ALLOCL;
+	  arm64_element->type = alloc_l;
+	  seh_ctx_cur->unwind_codes_byte_count += 4;
+	}
+      else
+	{
+	  as_bad (_(".seh_stackalloc offset out of range"));
+	  return;
+	}
+      break;
+    default:
+      as_bad (_(".seh_stackalloc invalid target"));
+      return;
+  }
 }
 
 /* Add a frame-pointer token to current context.  */
@@ -808,6 +1400,108 @@ seh_x64_write_prologue_data (const seh_context *c)
     }
 }
 
+static unsigned int
+seh_arm64_unwind_codes_len (const seh_context *c, int index)
+{
+  const seh_arm64_unwind_code *code = &c->unwind_codes[index];
+  unsigned int byte_count = 0;
+
+  switch (code->type)
+  {
+    case alloc_l:
+      byte_count = 4;
+      break;
+    case alloc_m:
+    case add_fp:
+    case save_reg:
+    case save_reg_x:
+    case save_regp:
+    case save_regp_x:
+    case save_fregp:
+    case save_fregp_x:
+    case save_freg:
+    case save_freg_x:
+    case save_lrpair:
+      byte_count = 2;
+      break;
+    case alloc_s:
+    case save_fplr:
+    case save_fplr_x:
+    case nop:
+    case pac_sign_lr:
+    case set_fp:
+    case save_next:
+    case save_r19r20_x:
+    case end:
+    case end_c:
+      byte_count = 1;
+      break;
+    default:
+      as_bad(_("unwind code not implemented"));
+      break;
+  }
+
+  return byte_count;
+}
+
+typedef struct seh_arm64_epilogue_header
+{
+  union
+  {
+    struct
+    {
+      unsigned int epilogue_start_offset : 18;
+      unsigned int reserved : 4;
+      unsigned int epilogue_start_index : 10;
+    } parts;
+    unsigned int packed : 32;
+  };
+} seh_arm64_epilogue_header;
+
+static void
+seh_arm64_emit_unwind_codes (const seh_context *c)
+{
+  unsigned int total_byte_count = 0;
+  int i;
+  expressionS exp;
+  memset (&exp, 0, sizeof (expressionS));
+
+  for (i = 0; i < (int)c->epilogue_scopes_count; i++)
+    {
+      seh_arm64_epilogue_header header;
+      header.parts.epilogue_start_offset = 0;
+      header.parts.reserved = 0;
+      header.parts.epilogue_start_index = seh_ctx_cur->epilogue_scopes[i].start_index;
+
+      exp.X_op = O_xdata_18bit;
+      exp.X_add_symbol = seh_ctx_cur->epilogue_scopes[i].epilogue_start_addr;
+      exp.X_op_symbol = c->start_addr;
+      exp.X_add_number = header.packed << 2;
+      emit_expr (&exp, 4);
+    }
+
+  for (i = 0; i < (int)c->unwind_codes_count; i++)
+    {
+      const seh_arm64_unwind_code *code = c->unwind_codes + i;
+      int byte_count = seh_arm64_unwind_codes_len (c, i);
+      unsigned char *byte_array = (unsigned char*)code;
+
+      /*  emit unwind code bytes in big endian   */
+      for (int j = byte_count-1; j >= 0; --j)
+	out_one (byte_array[j]);
+
+      total_byte_count += byte_count;
+    }
+
+  /* pad for 4 byte alignment   */
+  i = 4 - (total_byte_count % 4);
+
+  if (i != 4)
+    {
+      md_number_to_chars (frag_more (i), 0, i);
+    }
+}
+
 static int
 seh_x64_size_prologue_data (const seh_context *c)
 {
@@ -851,6 +1545,7 @@ seh_x64_write_function_xdata (seh_context *c)
 {
   int flags, count_unwind_codes;
   expressionS exp;
+  memset (&exp, 0, sizeof (expressionS));
 
   /* Set 4-byte alignment.  */
   frag_align (2, 0, 0);
@@ -902,6 +1597,73 @@ seh_x64_write_function_xdata (seh_context *c)
   /* Handler data will be tacked in here by subsections.  */
 }
 
+/* Write out the xdata information for one function (arm64).  */
+
+typedef struct seh_arm64_xdata_header
+{
+  union
+  {
+    struct
+    {
+      unsigned int func_length : 18;
+      unsigned int vers : 2;
+      unsigned int x : 1;
+      unsigned int e : 1;
+      unsigned int epilogue_count : 5;
+      unsigned int code_words : 5;
+    } parts;
+    unsigned int packed : 32;
+  };
+} seh_arm64_xdata_header;
+
+static void
+seh_arm64_write_function_xdata (seh_context *c)
+{
+  expressionS exp;
+  seh_arm64_xdata_header header;
+  unsigned int total_bytes = 0;
+
+  memset (&exp, 0, sizeof (expressionS));
+  memset (&header, 0, sizeof (header));
+
+  frag_align (2, 0, 0);
+
+  c->xdata_addr = symbol_temp_new_now ();
+  header.parts.vers = 0;
+  header.parts.func_length = 0;
+  header.parts.e = 0;
+  header.parts.epilogue_count = c->epilogue_scopes_count;
+  header.parts.x = c->handler.X_op == O_illegal ? 0 : 1;
+
+  total_bytes = c->unwind_codes_byte_count;
+
+  if (total_bytes % 4 == 0)
+  {
+    header.parts.code_words = total_bytes / 4;
+  }
+  else
+  {
+    header.parts.code_words = total_bytes / 4 + 1;
+  }
+
+  exp.X_op = O_xdata_18bit;
+  exp.X_add_symbol = c->end_addr;
+  exp.X_op_symbol = c->start_addr;
+  exp.X_add_number = header.packed << 2;
+  emit_expr (&exp, 4);
+
+  if (c->unwind_codes_byte_count > 0)
+    seh_arm64_emit_unwind_codes (c);
+
+  if (header.parts.x == 1)
+  {
+    if (c->handler.X_op == O_symbol) // XXX
+      c->handler.X_op = O_symbol_rva;
+
+    emit_expr (&c->handler, 4);
+  }
+}
+
 /* Write out xdata for one function.  */
 
 static void
@@ -909,14 +1671,18 @@ write_function_xdata (seh_context *c)
 {
   segT save_seg = now_seg;
   int save_subseg = now_subseg;
+  seh_kind target_kind = seh_get_target_kind ();
 
   /* MIPS, SH, ARM don't have xdata.  */
-  if (seh_get_target_kind () != seh_kind_x64)
+  if ((target_kind != seh_kind_x64) && (target_kind != seh_kind_arm64))
     return;
 
   switch_xdata (c->subsection, c->code_seg);
 
-  seh_x64_write_function_xdata (c);
+  if (target_kind == seh_kind_x64)
+    seh_x64_write_function_xdata (c);
+  else if (target_kind == seh_kind_arm64)
+    seh_arm64_write_function_xdata (c);
 
   subseg_set (save_seg, save_subseg);
 }
@@ -1001,6 +1767,18 @@ write_function_pdata (seh_context *c)
       emit_expr (&exp, 4);
       break;
 
+    case seh_kind_arm64:
+      exp.X_op = O_symbol_rva;
+      exp.X_add_number = 0;
+      exp.X_add_symbol = c->start_addr;
+      emit_expr (&exp, 4);
+
+      exp.X_op = O_symbol_rva;
+      exp.X_add_number = 0;
+      exp.X_add_symbol = c->xdata_addr;
+      emit_expr (&exp, 4);
+      break;
+
     case seh_kind_mips:
       exp.X_op = O_symbol;
       exp.X_add_number = 0;
@@ -1029,3 +1807,13 @@ write_function_pdata (seh_context *c)
 
   subseg_set (save_seg, save_subseg);
 }
+
+static inline bool
+can_write_pdata_xdata_records(void)
+{
+  seh_kind kind = seh_get_target_kind ();
+  if (kind == seh_kind_arm64) 
+    return seh_ctx_cur->unwind_codes_byte_count > 0;
+  return kind == seh_kind_x64;
+}
+
