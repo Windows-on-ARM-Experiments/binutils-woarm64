@@ -2415,6 +2415,21 @@ S_IS_DEBUG (const symbolS *s)
 }
 
 int
+S_SHOULD_BE_REDUCED_TO_SECTION_NAME (const symbolS *s) {
+#if defined(COFFAARCH64)
+  if (S_GET_STORAGE_CLASS ((symbolS *)s) == C_STAT)
+    return false;
+
+  if (!strncmp(".L", s->name, 2))
+    return false;
+#else
+  (void) s; /* Avoid unused variable warning.  */
+#endif
+
+  return true;
+}
+
+int
 S_IS_LOCAL (const symbolS *s)
 {
   flagword flags;
