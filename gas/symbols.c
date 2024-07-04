@@ -2422,6 +2422,10 @@ S_SHOULD_BE_REDUCED_TO_SECTION_NAME (const symbolS *s) {
 
   if (!strncmp(".L", s->name, 2))
     return false;
+
+  if (!strcmp(".rdata", s->bsym->section->name))
+    return false;
+
 #else
   (void) s; /* Avoid unused variable warning.  */
 #endif
