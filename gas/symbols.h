@@ -124,6 +124,8 @@ extern void S_SET_THREAD_LOCAL (symbolS *);
 extern void S_SET_VOLATILE (symbolS *);
 extern void S_CLEAR_VOLATILE (symbolS *);
 extern void S_SET_FORWARD_REF (symbolS *);
+extern int S_SHOULD_BE_REDUCED_TO_SECTION_NAME (const symbolS *s);
+
 
 #ifndef WORKING_DOT_WORD
 struct broken_word
