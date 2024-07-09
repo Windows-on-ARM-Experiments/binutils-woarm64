@@ -2934,8 +2934,8 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 
       symndx = rel->r_symndx;
 
-	  if (rel->r_vaddr == (bfd_vma) -1)
-	  	continue;
+      if (rel->r_vaddr == (bfd_vma) -1)
+	continue;
 
       if (symndx == -1)
 	{
