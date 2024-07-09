@@ -2415,6 +2415,23 @@ S_IS_DEBUG (const symbolS *s)
 }
 
 int
+S_SHOULD_BE_REDUCED_TO_SECTION_NAME (const symbolS *s)
+{
+#if defined (COFFAARCH64)
+  if (S_GET_STORAGE_CLASS ((symbolS *) s) == C_STAT)
+    return 0;
+
+  if (s->bsym->section->flags & (SEC_DATA | SEC_READONLY))
+    return 0;
+
+#else
+  (void) s; /* Avoid unused variable warning.  */
+#endif
+
+  return 1;
+}
+
+int
 S_IS_LOCAL (const symbolS *s)
 {
   flagword flags;
