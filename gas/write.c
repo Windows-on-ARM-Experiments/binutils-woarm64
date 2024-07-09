@@ -891,6 +891,9 @@ adjust_reloc_syms (bfd *abfd ATTRIBUTE_UNUSED,
 	if ((symsec->flags & SEC_THREAD_LOCAL) != 0)
 	  continue;
 
+	if (!S_SHOULD_BE_REDUCED_TO_SECTION_NAME (sym))
+		continue;
+
 	val = S_GET_VALUE (sym);
 
 #if defined(TC_AARCH64) && defined(OBJ_COFF)
