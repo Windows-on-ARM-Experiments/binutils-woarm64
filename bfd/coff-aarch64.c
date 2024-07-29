@@ -523,10 +523,29 @@ coff_pe_aarch64_relocate_section (bfd *output_bfd,
 
       h = obj_coff_sym_hashes (input_bfd)[symndx];
 
-      if (h && h->root.type == bfd_link_hash_defined)
+      if (h && (h->root.type == bfd_link_hash_defined
+	|| h->root.type == bfd_link_hash_defweak))
 	{
 	  sec = h->root.u.def.section;
 	  sym_value = h->root.u.def.value;
+	}
+      else if (h && h->root.type == bfd_link_hash_undefweak
+	&& h->symbol_class == C_NT_WEAK && h->numaux == 1)
+	{
+	  struct coff_link_hash_entry *h2 =
+	  h->auxbfd->tdata.coff_obj_data->sym_hashes
+	  [h->aux->x_sym.x_tagndx.u32];
+
+	  if (!h2 || h2->root.type == bfd_link_hash_undefined)
+	  {
+	    sec = bfd_abs_section_ptr;
+	    sym_value = 0;
+	  }
+	  else
+	  {
+	    sec = h2->root.u.def.section;
+	    sym_value = h2->root.u.def.value;
+	  }
 	}
       else
 	{
