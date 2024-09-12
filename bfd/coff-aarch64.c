@@ -78,9 +78,8 @@ coff_aarch64_rel21_reloc (bfd *abfd,
       relocation -= (reloc_entry->address
 		     + input_section->output_offset
 		     + input_section->output_section->vma);
+      relocation = (bfd_signed_vma) relocation >> reloc_entry->howto->rightshift;
     }
-
-  relocation = (bfd_signed_vma) relocation >> reloc_entry->howto->rightshift;
   if (relocation + 0x100000 > 0x1fffff)
     ret = bfd_reloc_overflow;
 
@@ -719,7 +718,6 @@ coff_pe_aarch64_relocate_section (bfd *output_bfd,
 
 	    if (addend & 0x100000)
 	      addend |= 0xffffffffffe00000;
-	    addend <<= 12;
 
 	    dest_vma += addend;
 	    cur_vma = input_section->output_section->vma
