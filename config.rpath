@@ -439,7 +439,7 @@ case "$host_os" in
     ;;
   cygwin* | mingw* | pw32*)
     case "$TOOLCHAIN_TARGET" in
-      i686-w64-mingw32 | x86_64-w64-mingw32)
+      aarch64-w64-mingw32 | i686-w64-mingw32 | x86_64-w64-mingw32)
 	shrext=.dll.a
 	;;
       *)

@@ -7,6 +7,10 @@ else
 fi
 
 case ${target} in
+  aarch64-*-cygwin*)
+    move_default_addr_high=1
+    cygwin_behavior=0;
+    ;;
   *-*-cygwin*)
     move_default_addr_high=1
     cygwin_behavior=1
@@ -78,9 +82,9 @@ fragment <<EOF
 EOF
 
 case ${target} in
+  aarch64-*-mingw* | aarch64-*-pe* | aarch64-*-cygwin | \
   x86_64-*-mingw* | x86_64-*-pe | x86_64-*-pep | x86_64-*-cygwin | \
-  i[3-7]86-*-mingw32* | i[3-7]86-*-cygwin* | i[3-7]86-*-winnt | i[3-7]86-*-pe | \
-  aarch64-*-mingw* | aarch64-*-pe* )
+  i[3-7]86-*-mingw32* | i[3-7]86-*-cygwin* | i[3-7]86-*-winnt | i[3-7]86-*-pe)
 fragment <<EOF
 #include "pdb.h"
 EOF

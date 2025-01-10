@@ -947,6 +947,9 @@ EOF
     i*:UWIN*:*)
 	GUESS=$UNAME_MACHINE-pc-uwin
 	;;
+    aarch64:CYGWIN*:*:*)
+	GUESS=aarch64-pc-cygwin
+	;;
     amd64:CYGWIN*:*:* | x86_64:CYGWIN*:*:*)
 	GUESS=x86_64-pc-cygwin
 	;;
